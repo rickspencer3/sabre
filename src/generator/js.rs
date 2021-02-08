@@ -63,7 +63,6 @@ fn generate_block(block: Statement, prepend: Option<String>) -> String {
         generated += &pre;
     }
 
-    // TODO: Prepend statements
     let statements = match block {
         Statement::Block(blk, _) => blk,
         _ => panic!("Block body should be of type Statement::Block"),
@@ -81,7 +80,7 @@ fn generate_block(block: Statement, prepend: Option<String>) -> String {
 fn generate_statement(statement: Statement) -> String {
     let state = match statement {
         Statement::Return(ret) => generate_return(ret),
-        Statement::Declare(name, val) => generate_declare(name.name, val),
+        Statement::Declare(name, val) => generate_declare(name, val),
         Statement::Exp(val) => generate_expression(val),
         Statement::If(expr, if_state, else_state) => {
             generate_conditional(expr, *if_state, else_state.map(|x| *x))
@@ -121,7 +120,11 @@ fn generate_while_loop(expr: Expression, body: Statement) -> String {
 fn generate_for_loop(ident: Variable, expr: Expression, body: Statement) -> String {
     // Assign expression to variable to access it from within the loop
     let expr_name = format!("loop_orig_{}", ident.name);
-    let mut out_str = format!("{};\n", generate_declare(expr_name.clone(), Some(expr)));
+    let expr_var = Variable {
+        name: expr_name.clone(),
+        ty: ident.ty,
+    };
+    let mut out_str = format!("{};\n", generate_declare(expr_var, Some(expr)));
 
     // Loop signature
     out_str += &format!(
@@ -194,12 +197,12 @@ fn generate_conditional(
     outcome
 }
 
-fn generate_declare(name: String, val: Option<Expression>) -> String {
+fn generate_declare(var: Variable, val: Option<Expression>) -> String {
     // var is used here to not collide with scopes.
     // TODO: Can let be used instead?
     match val {
-        Some(expr) => format!("var {} = {}", name, generate_expression(expr)),
-        None => format!("var {}", name),
+        Some(expr) => format!("var {} = {}", var.name, generate_expression(expr)),
+        None => format!("var {}", var.name),
     }
 }
 

@@ -55,13 +55,13 @@ pub(super) fn generate_type(t: Either<Variable, Option<Type>>) -> String {
             Type::Str => "char *".into(),
             Type::Any => "void *".into(),
             Type::Bool => "bool".into(),
-            Type::Array(_) => match name {
+            Type::Array(arr_ty) => match name {
                 Some(n) => format!(
                     "{T} {N}[]",
-                    T = generate_type(Either::Right(Some(t))),
+                    T = generate_type(Either::Right(Some(*arr_ty))),
                     N = n
                 ),
-                None => format!("{}[]", generate_type(Either::Right(Some(t)))),
+                None => format!("{}[]", generate_type(Either::Right(Some(*arr_ty)))),
             },
         },
         None => "void".into(),
@@ -71,9 +71,7 @@ pub(super) fn generate_type(t: Either<Variable, Option<Type>>) -> String {
 fn generate_function(func: Function) -> String {
     let mut buf = String::new();
     buf += &format!("{} ", &generate_function_signature(func.clone()));
-    if let Statement::Block(statements, scope) = func.body {
-        buf += &generate_block(statements, scope);
-    }
+    buf += &generate_block(func.body, None);
 
     buf
 }
@@ -89,10 +87,20 @@ fn generate_function_signature(func: Function) -> String {
     format!("{T} {N}({A})", T = t, N = func.name, A = arguments)
 }
 
-fn generate_block(block: Vec<Statement>, scope: Vec<Variable>) -> String {
+fn generate_block(block: Statement, prepend: Option<String>) -> String {
     let mut generated = String::from("{\n");
 
-    for statement in block {
+    let statements = match block {
+        Statement::Block(statements, _) => statements,
+        _ => panic!("Statement passed to generate_block was not a block"),
+    };
+
+    // Prepend statements
+    if let Some(pre) = prepend {
+        generated += &pre;
+    }
+
+    for statement in statements {
         generated += &generate_statement(statement);
     }
 
@@ -110,9 +118,9 @@ fn generate_statement(statement: Statement) -> String {
             generate_conditional(expr, *if_state, else_state.map(|x| *x))
         }
         Statement::Assign(name, state) => generate_assign(*name, *state),
-        Statement::Block(statements, scope) => generate_block(statements, scope),
+        Statement::Block(_, _) => generate_block(statement, None),
         Statement::While(expr, body) => generate_while_loop(expr, *body),
-        Statement::For(ident, expr, body) => todo!(),
+        Statement::For(ident, expr, body) => generate_for_loop(ident, expr, *body),
         Statement::Continue => todo!(),
         Statement::Break => todo!(),
     };
@@ -140,9 +148,48 @@ fn generate_while_loop(expr: Expression, body: Statement) -> String {
     out_str += &generate_expression(expr);
     out_str += ") ";
 
-    if let Statement::Block(statements, scope) = body {
-        out_str += &generate_block(statements, scope);
-    }
+    out_str += &generate_block(body, None);
+    out_str
+}
+
+fn generate_for_loop(ident: Variable, expr: Expression, body: Statement) -> String {
+    // Assign expression to variable to access it from within the loop
+    let expr_name = format!("loop_orig_{}", ident.name);
+    let expr_var = Variable {
+        name: expr_name.clone(),
+        ty: ident.ty.clone(),
+    };
+    let mut out_str = format!("{};\n", generate_declare(expr_var, Some(expr)));
+
+    // Allocate size of array
+    out_str += &format!("int size = sizeof {E} / sizeof {E}[0];", E = expr_name);
+
+    // Loop signature
+    out_str += &format!(
+        "for ({T} iter_{I} = 0; iter_{I} < size; iter_{I}++)",
+        T = generate_type(Either::Right(ident.ty.clone())),
+        I = ident.name,
+    );
+
+    let prepended_statement = match ident.ty {
+        Some(Type::Array(_)) => format!(
+            // In arrays, the type contains the name, so it must be omitted
+            "{T} = {E}[iter_{I}];\n",
+            T = generate_type(Either::Right(ident.ty)),
+            I = ident.name,
+            E = expr_name
+        ),
+        _ => format!(
+            "{T} {I} = {E}[iter_{I}];\n",
+            T = generate_type(Either::Right(ident.ty)),
+            I = ident.name,
+            E = expr_name
+        ),
+    };
+
+    // Block with prepended declaration of the actual variable
+    // TODO: Use generate_declare here
+    out_str += &generate_block(body, Some(prepended_statement));
     out_str
 }
 

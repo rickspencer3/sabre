@@ -22,6 +22,13 @@ pub(super) fn infer(program: &mut Program) -> Result<(), String> {
                             }
                         }
                     }
+                    Statement::For(var, _, _) => {
+                        #[cfg(feature = "backend_c")]
+                        if let None = &var.ty {
+                            // TODO: Evaluate type based on expression
+                            todo!("Please explicitly specify the type in for loops");
+                        }
+                    }
                     _ => {}
                 }
             }
